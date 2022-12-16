@@ -1,20 +1,57 @@
 package main
 
 import (
+	"fmt"
+	"log"
 	"net/http"
+	"time"
 
-	"github.com/sariyanta/goweb-project/pkg/handlers"
+	"github.com/alexedwards/scs/v2"
+	"github.com/sariyanta/goweb/pkg/config"
+	"github.com/sariyanta/goweb/pkg/handlers"
+	"github.com/sariyanta/goweb/pkg/render"
 )
 
+const PORT = ":8080"
+
+var app config.AppConfig
+var session *scs.SessionManager
+
 func main() {
-	http.HandleFunc("/", handlers.Home)
+	// Change this to true when in production
+	app.InProduction = false
 
-	// Create a file server which serves files out of the "./static/" directory.
-	fs := http.FileServer(http.Dir("./static/"))
+	session = scs.New()
+	session.Lifetime = 24 * time.Hour
+	session.Cookie.Persist = true
+	session.Cookie.SameSite = http.SameSiteLaxMode
+	session.Cookie.Secure = app.InProduction
 
-	// Tell the server to handle all requests starting with "/static/" by using
-	// the file server we just created.
-	http.Handle("/static/", http.StripPrefix("/static/", fs))
+	app.Session = session
 
-	_ = http.ListenAndServe(":8080", nil)
+	tc, err := render.CreateTemplateCache()
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	app.TemplateCache = tc
+	app.UseCache = false
+
+	repo := handlers.NewRepo(&app)
+	handlers.NewHandlers(repo)
+
+	render.NewTemplates(&app)
+
+	fmt.Println("Server is running on port", PORT)
+
+	srv := &http.Server{
+		Addr:    PORT,
+		Handler: routes(&app),
+	}
+
+	err = srv.ListenAndServe()
+	if err != nil {
+		log.Fatal(err)
+	}
+
 }
